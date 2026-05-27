@@ -1,43 +1,91 @@
-//------------------------------------------------------------------------
-// Copyright(c) 2024 Hikari Audio.
-//------------------------------------------------------------------------
+cmake_minimum_required(VERSION 3.14.0)
 
-#pragma once
+option(SMTG_ENABLE_VST3_PLUGIN_EXAMPLES "Enable VST 3 Plug-in Examples" OFF)
+option(SMTG_ENABLE_VST3_HOSTING_EXAMPLES "Enable VST 3 Hosting Examples" OFF)
 
-#include "public.sdk/source/vst/vsteditcontroller.h"
-#include "vstgui/plugin-bindings/vst3editor.h"
+# Force VSTGUI on
+option(SMTG_ENABLE_VSTGUI_SUPPORT "Enable VSTGUI" ON)
 
-namespace MyCompanyName {
+set(CMAKE_OSX_DEPLOYMENT_TARGET 10.13 CACHE STRING "")
 
-//------------------------------------------------------------------------
-//  muLawController
-//------------------------------------------------------------------------
-class muLawController : public Steinberg::Vst::EditControllerEx1,
-                        public VSTGUI::VST3EditorDelegate
-{
-public:
-    muLawController()  = default;
-    ~muLawController() SMTG_OVERRIDE = default;
+# !! Update this path to wherever your VST3 SDK lives !!
+set(vst3sdk_SOURCE_DIR "C:/Users/tabu1/Documents/VST DEV/VST_SDK/vst3sdk")
+if(NOT vst3sdk_SOURCE_DIR)
+    message(FATAL_ERROR "Path to VST3 SDK is empty!")
+endif()
 
-    static Steinberg::FUnknown* createInstance(void* /*context*/)
-    {
-        return (Steinberg::Vst::IEditController*)new muLawController;
-    }
+project(mu_law
+    VERSION 1.1.0.0
+    DESCRIPTION "mu-law — Hikari Audio Analog Saturation Engine"
+)
 
-    //--- IPluginBase ----------------------------------------------------
-    Steinberg::tresult PLUGIN_API initialize(Steinberg::FUnknown* context) SMTG_OVERRIDE;
-    Steinberg::tresult PLUGIN_API terminate()  SMTG_OVERRIDE;
+set(SMTG_VSTGUI_ROOT "${vst3sdk_SOURCE_DIR}")
 
-    //--- EditController -------------------------------------------------
-    Steinberg::tresult PLUGIN_API setComponentState(Steinberg::IBStream* state) SMTG_OVERRIDE;
-    Steinberg::IPlugView* PLUGIN_API createView(Steinberg::FIDString name) SMTG_OVERRIDE;
-    Steinberg::tresult PLUGIN_API setState(Steinberg::IBStream* state) SMTG_OVERRIDE;
-    Steinberg::tresult PLUGIN_API getState(Steinberg::IBStream* state) SMTG_OVERRIDE;
+add_subdirectory(${vst3sdk_SOURCE_DIR} ${PROJECT_BINARY_DIR}/vst3sdk)
+smtg_enable_vst3_sdk()
 
-    DEFINE_INTERFACES
-    END_DEFINE_INTERFACES(EditController)
-    DELEGATE_REFCOUNT(EditController)
-};
+smtg_add_vst3plugin(mu_law
+    source/version.h
+    source/myplugincids.h
+    source/envelope.h
+    source/vstmath.h
+    source/vstmath.cpp
+    source/effects.h
+    source/effects.cpp
+    source/mypluginprocessor.h
+    source/mypluginprocessor.cpp
+    source/myplugincontroller.h
+    source/myplugincontroller.cpp
+    source/mypluginentry.cpp
+)
 
-//------------------------------------------------------------------------
-} // namespace MyCompanyName
+# VSTGUI
+if(SMTG_ENABLE_VSTGUI_SUPPORT)
+    target_sources(mu_law
+        PRIVATE
+            resource/myplugineditor.uidesc
+    )
+    target_link_libraries(mu_law
+        PRIVATE
+            vstgui_support
+    )
+    smtg_target_add_plugin_resources(mu_law
+        RESOURCES
+            "resource/myplugineditor.uidesc"
+    )
+endif()
+
+smtg_target_add_plugin_snapshots(mu_law
+    RESOURCES
+        resource/C0DA704676815B919799DDCE9EFF8FC1_snapshot.png
+        resource/C0DA704676815B919799DDCE9EFF8FC1_snapshot_2.0x.png
+)
+
+target_link_libraries(mu_law
+    PRIVATE
+        sdk
+)
+
+smtg_target_configure_version_file(mu_law)
+
+if(SMTG_MAC)
+    smtg_target_set_bundle(mu_law
+        BUNDLE_IDENTIFIER hia.hikariaudio.muLaw
+        COMPANY_NAME "Hikari Audio"
+    )
+    smtg_target_set_debug_executable(mu_law
+        "/Applications/VST3PluginTestHost.app"
+        "--pluginfolder;$(BUILT_PRODUCTS_DIR)"
+    )
+elseif(SMTG_WIN)
+    target_sources(mu_law PRIVATE
+        resource/win32resource.rc
+    )
+    if(MSVC)
+        set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT mu_law)
+        smtg_target_set_debug_executable(mu_law
+            "$(ProgramW6432)/Steinberg/VST3PluginTestHost/VST3PluginTestHost.exe"
+            "--pluginfolder \"$(OutDir)/\""
+        )
+    endif()
+endif()
